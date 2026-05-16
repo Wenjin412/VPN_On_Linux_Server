@@ -147,7 +147,15 @@ sudo vpncli restart
 - 订阅缓存：`/etc/vpn-on-linux/providers/subscription.yaml`
 - systemd unit：`/etc/systemd/system/vpn-on-linux.service`
 
-配置文件权限默认收紧到 `0600/0700`，订阅链接不会在命令输出中明文展示。
+配置目录默认是 `2750`，配置文件默认是 `0640`。安装器会把配置文件组设为执行
+`sudo` 的用户主组，所以安装者可以直接运行 `vpncli nodes`、`vpncli test` 这类查询命令；
+修改订阅、重启服务、切换 TUN 等操作仍建议使用 `sudo`。
+
+如果从旧版本升级后普通用户遇到权限错误：
+
+```bash
+sudo vpncli fix-permissions
+```
 
 `vpnctl` 仍会作为兼容别名安装，但新文档和新服务统一使用 `vpncli`。
 

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import grp
 import http.client
 import json
 import os
 import platform
+import pwd
 import secrets
 import shutil
 import ssl
@@ -141,20 +143,33 @@ def merge_state(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_state(required: bool = False) -> dict[str, Any]:
-    if not STATE_PATH.exists():
+    try:
+        exists = STATE_PATH.exists()
+    except PermissionError as exc:
+        raise CliError(
+            f"Permission denied reading {STATE_PATH}. Run 'sudo {CLI_NAME} fix-permissions' "
+            f"or retry this command with sudo."
+        ) from exc
+    if not exists:
         if required:
             raise CliError(
                 f"{STATE_PATH} does not exist. Run 'sudo {CLI_NAME} setup <subscription-url>' first."
             )
         return default_state()
-    with STATE_PATH.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with STATE_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except PermissionError as exc:
+        raise CliError(
+            f"Permission denied reading {STATE_PATH}. Run 'sudo {CLI_NAME} fix-permissions' "
+            f"or retry this command with sudo."
+        ) from exc
     if not isinstance(data, dict):
         raise CliError(f"{STATE_PATH} is not a JSON object.")
     return merge_state(data)
 
 
-def atomic_write(path: Path, content: str | bytes, mode: int = 0o600) -> None:
+def atomic_write(path: Path, content: str | bytes, mode: int = 0o640) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     tmp_path = Path(tmp_name)
@@ -209,8 +224,8 @@ def ensure_dirs() -> None:
     ETC_DIR.mkdir(parents=True, exist_ok=True)
     VAR_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        os.chmod(ETC_DIR, 0o700)
-        os.chmod(VAR_DIR, 0o700)
+        os.chmod(ETC_DIR, 0o2750)
+        os.chmod(VAR_DIR, 0o2750)
     except PermissionError:
         pass
 
@@ -745,6 +760,56 @@ def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def target_access_group() -> str:
+    explicit = os.environ.get("VPNCLI_ACCESS_GROUP") or os.environ.get("VPNCTL_ACCESS_GROUP")
+    if explicit:
+        return explicit
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        user_entry = pwd.getpwnam(sudo_user)
+        return grp.getgrgid(user_entry.pw_gid).gr_name
+    return "root"
+
+
+def chmod_if_exists(path: Path, mode: int) -> None:
+    try:
+        if path.exists():
+            os.chmod(path, mode)
+    except PermissionError as exc:
+        raise CliError(f"Permission denied changing mode for {path}; run with sudo.") from exc
+
+
+def chgrp_if_exists(path: Path, gid: int) -> None:
+    try:
+        if path.exists():
+            os.chown(path, -1, gid)
+    except PermissionError as exc:
+        raise CliError(f"Permission denied changing group for {path}; run with sudo.") from exc
+
+
+def cmd_fix_permissions(args: argparse.Namespace) -> None:
+    group_name = target_access_group()
+    try:
+        gid = grp.getgrnam(group_name).gr_gid
+    except KeyError as exc:
+        raise CliError(f"Group does not exist: {group_name}") from exc
+
+    dirs = [ETC_DIR, VAR_DIR, PROVIDER_PATH.parent]
+    files = [STATE_PATH, CONFIG_PATH, PROVIDER_PATH]
+
+    for directory in dirs:
+        directory.mkdir(parents=True, exist_ok=True)
+        chgrp_if_exists(directory, gid)
+        chmod_if_exists(directory, 0o2750)
+    for file_path in files:
+        if file_path.exists():
+            chgrp_if_exists(file_path, gid)
+            chmod_if_exists(file_path, 0o640)
+
+    if not getattr(args, "quiet", False):
+        print(f"Permissions fixed for group: {group_name}")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     if args.argv and args.argv[0] == "--":
         args.argv = args.argv[1:]
@@ -905,6 +970,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     info = sub.add_parser("info", help="show local configuration paths and mode")
     info.set_defaults(func=cmd_info)
+
+    fix_permissions = sub.add_parser("fix-permissions", help="allow the sudo caller to use read-only commands")
+    fix_permissions.add_argument("--quiet", action="store_true")
+    fix_permissions.set_defaults(func=cmd_fix_permissions)
 
     logs = sub.add_parser("logs", help="show service logs")
     logs.add_argument("-n", "--lines", type=int, default=100)

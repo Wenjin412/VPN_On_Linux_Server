@@ -307,13 +307,14 @@ install_mihomo() {
 }
 
 install -d -m 0755 "$BIN_DIR"
-install -d -m 0700 "$ETC_DIR" "$VAR_DIR"
+install -d -m 2750 "$ETC_DIR" "$VAR_DIR"
 install -d -m 0755 /usr/local/bin
 
 install_mihomo
 fetch_file "vpn_on_linux/vpnctl.py" "$BIN_DIR/vpncli"
 ln -sf "$BIN_DIR/vpncli" /usr/local/bin/vpncli
 ln -sf "$BIN_DIR/vpncli" /usr/local/bin/vpnctl
+/usr/local/bin/vpncli fix-permissions --quiet || true
 
 if command -v systemctl >/dev/null 2>&1; then
   if [[ -n "$repo_dir" && -f "$repo_dir/systemd/vpn-on-linux.service" ]]; then
@@ -338,6 +339,7 @@ if [[ -n "$SUBSCRIPTION_URL" ]]; then
   else
     /usr/local/bin/vpncli subscription set "$SUBSCRIPTION_URL"
   fi
+  /usr/local/bin/vpncli fix-permissions --quiet || true
 else
   cat <<MSG
 Installed VPN On Linux Server.
