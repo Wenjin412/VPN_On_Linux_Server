@@ -1,0 +1,23 @@
+[Unit]
+Description=VPN On Linux Server (Mihomo core)
+Documentation=https://github.com/Wenjin412/VPN_On_Linux_Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/vpnctl subscription refresh --quiet
+ExecStartPre=/usr/local/bin/vpnctl render --quiet
+ExecStart=/opt/vpn-on-linux/bin/mihomo -d /etc/vpn-on-linux -f /etc/vpn-on-linux/config.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+
+# TUN mode is off by default, but these capabilities let users enable it later
+# without changing the unit. In proxy-only mode no server routes are modified.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
