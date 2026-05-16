@@ -40,6 +40,16 @@ curl -fsSL "${VPNCLI_GITHUB_PROXY%/}/https://raw.githubusercontent.com/Wenjin412
 - `https://mirror.example.com/` 会拼成 `https://mirror.example.com/https://github.com/...`
 - `https://mirror.example.com/?url={url}` 会把 `{url}` 替换成完整 GitHub URL
 
+如果 GitHub release 下载 Mihomo 内核特别慢，安装器会把未完成文件缓存在
+`/tmp/vpn-on-linux-install-cache` 并支持断点续传。也可以先在网络更好的机器下载对应架构的
+Mihomo `.gz` 文件，再传到服务器后安装：
+
+```bash
+export VPNCLI_MIHOMO_FILE='/path/to/mihomo-linux-arm64-v1.19.25.gz'
+curl -fsSL https://raw.githubusercontent.com/Wenjin412/VPN_On_Linux_Server/main/scripts/install.sh \
+  | sudo VPNCLI_MIHOMO_FILE="$VPNCLI_MIHOMO_FILE" bash -s -- --subscription "$SUB_URL"
+```
+
 如果想先安装再配置：
 
 ```bash

@@ -10,7 +10,23 @@ VAR_DIR="${VPNCLI_VAR_DIR:-${VPNCTL_VAR_DIR:-/var/lib/vpn-on-linux}}"
 SUBSCRIPTION_URL="${VPN_SUBSCRIPTION_URL:-}"
 START_AFTER_INSTALL=auto
 GITHUB_PROXY_LIST="${VPNCLI_GITHUB_PROXY_LIST:-${VPNCLI_GITHUB_PROXY:-${GITHUB_PROXY:-}}}"
-CURL_COMMON=(--fail --location --retry 3 --connect-timeout 15 --max-time 300 --speed-time 30 --speed-limit 1024)
+MIHOMO_FILE="${VPNCLI_MIHOMO_FILE:-${MIHOMO_FILE:-}}"
+FORCE_MIHOMO_DOWNLOAD="${VPNCLI_FORCE_MIHOMO_DOWNLOAD:-false}"
+DOWNLOAD_CACHE="${VPNCLI_DOWNLOAD_CACHE:-/tmp/vpn-on-linux-install-cache}"
+CURL_CONNECT_TIMEOUT="${VPNCLI_CURL_CONNECT_TIMEOUT:-20}"
+CURL_MAX_TIME="${VPNCLI_CURL_MAX_TIME:-3600}"
+CURL_SPEED_TIME="${VPNCLI_CURL_SPEED_TIME:-120}"
+CURL_SPEED_LIMIT="${VPNCLI_CURL_SPEED_LIMIT:-1}"
+CURL_COMMON=(
+  --fail
+  --location
+  --retry 5
+  --retry-delay 2
+  --connect-timeout "$CURL_CONNECT_TIMEOUT"
+  --max-time "$CURL_MAX_TIME"
+  --speed-time "$CURL_SPEED_TIME"
+  --speed-limit "$CURL_SPEED_LIMIT"
+)
 
 usage() {
   cat <<USAGE
@@ -20,6 +36,10 @@ Usage:
 Environment:
   VPN_SUBSCRIPTION_URL   Subscription URL to configure during install.
   MIHOMO_VERSION         Optional Mihomo tag, for example v1.19.24.
+  VPNCLI_MIHOMO_FILE     Optional local Mihomo .gz or executable path.
+  VPNCLI_FORCE_MIHOMO_DOWNLOAD=true
+                         Re-download Mihomo even when already installed.
+  VPNCLI_DOWNLOAD_CACHE  Download cache directory. Defaults to /tmp/vpn-on-linux-install-cache.
   VPNCLI_GITHUB_PROXY    Optional trusted GitHub mirror/proxy prefix for mainland servers.
                          Example: https://your-mirror.example.com/
                          The mirror receives full GitHub URLs as path, or use {url}.
@@ -133,11 +153,20 @@ download_candidates() {
 download_url() {
   local url="$1"
   local dest="$2"
+  local resume="${3:-false}"
   local candidate
+  mkdir -p "$(dirname "$dest")"
   while IFS= read -r candidate; do
     echo "Downloading: $candidate"
-    if curl "${CURL_COMMON[@]}" "$candidate" -o "$dest"; then
-      return 0
+    if [[ "$resume" == "true" ]]; then
+      if curl "${CURL_COMMON[@]}" --continue-at - "$candidate" -o "$dest"; then
+        return 0
+      fi
+    else
+      rm -f "$dest"
+      if curl "${CURL_COMMON[@]}" "$candidate" -o "$dest"; then
+        return 0
+      fi
     fi
     echo "Download failed, trying next source if available." >&2
   done < <(download_candidates "$url")
@@ -226,8 +255,41 @@ select_asset() {
   fi
 }
 
+install_mihomo_from_file() {
+  local src="$1"
+  local tmpdir kind
+  if [[ ! -f "$src" ]]; then
+    echo "VPNCLI_MIHOMO_FILE does not exist: $src" >&2
+    exit 1
+  fi
+  tmpdir="$(mktemp -d)"
+  kind="$(file -b "$src" || true)"
+  if [[ "$src" == *.gz || "$kind" == *gzip* ]]; then
+    gzip -dc "$src" > "$tmpdir/mihomo"
+  else
+    cp "$src" "$tmpdir/mihomo"
+  fi
+  chmod +x "$tmpdir/mihomo"
+  if ! "$tmpdir/mihomo" -v >/dev/null 2>&1; then
+    echo "Provided Mihomo file is not executable or is for the wrong architecture: $src" >&2
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+  install -m 0755 "$tmpdir/mihomo" "$BIN_DIR/mihomo"
+  rm -rf "$tmpdir"
+}
+
 install_mihomo() {
   local tag asset url tmpdir
+  if [[ -n "$MIHOMO_FILE" ]]; then
+    echo "Installing Mihomo from local file: $MIHOMO_FILE"
+    install_mihomo_from_file "$MIHOMO_FILE"
+    return
+  fi
+  if [[ -x "$BIN_DIR/mihomo" && "$FORCE_MIHOMO_DOWNLOAD" != "true" ]]; then
+    echo "Mihomo already installed at $BIN_DIR/mihomo; skipping download."
+    return
+  fi
   tag="$(latest_mihomo_tag)"
   asset="$(select_asset "$tag")"
   if [[ -z "$asset" ]]; then
@@ -237,8 +299,9 @@ install_mihomo() {
   url="https://github.com/$MIHOMO_REPO/releases/download/$tag/$asset"
   tmpdir="$(mktemp -d)"
   echo "Downloading Mihomo $tag: $asset"
-  download_url "$url" "$tmpdir/mihomo.gz"
-  gzip -dc "$tmpdir/mihomo.gz" > "$tmpdir/mihomo"
+  mkdir -p "$DOWNLOAD_CACHE"
+  download_url "$url" "$DOWNLOAD_CACHE/$asset" true
+  gzip -dc "$DOWNLOAD_CACHE/$asset" > "$tmpdir/mihomo"
   install -m 0755 "$tmpdir/mihomo" "$BIN_DIR/mihomo"
   rm -rf "$tmpdir"
 }
