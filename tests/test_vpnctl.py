@@ -47,6 +47,18 @@ class VpnctlUnitTests(unittest.TestCase):
             self.assertEqual(vpnctl.resolve_node_name("Tokyo 02", state), "Tokyo 02")
             self.assertEqual(vpnctl.resolve_node_name("kong", state), "Hong Kong 01")
 
+    def test_nodes_defaults_to_list(self):
+        args = type("Args", (), {"nodes_command": None})()
+        state = vpnctl.default_state()
+        with (
+            mock.patch.object(vpnctl, "read_state", return_value=state),
+            mock.patch.object(vpnctl, "get_provider_nodes", return_value=["Hong Kong 01"]),
+            mock.patch.object(vpnctl, "selected_node", return_value="Hong Kong 01"),
+            mock.patch("builtins.print") as print_mock,
+        ):
+            vpnctl.cmd_nodes(args)
+        print_mock.assert_any_call("* 001 Hong Kong 01")
+
 
 if __name__ == "__main__":
     unittest.main()

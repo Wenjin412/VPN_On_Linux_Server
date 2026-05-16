@@ -554,7 +554,8 @@ def switch_node(name: str, state: dict[str, Any]) -> None:
 
 def cmd_nodes(args: argparse.Namespace) -> None:
     state = read_state(required=True)
-    if args.nodes_command == "list":
+    nodes_command = args.nodes_command or "list"
+    if nodes_command == "list":
         nodes = get_provider_nodes(state)
         current = selected_node(state)
         if not nodes:
@@ -564,11 +565,11 @@ def cmd_nodes(args: argparse.Namespace) -> None:
             print(f"{marker} {idx:03d} {name}")
         if current and current not in nodes:
             print(f"* current group selection: {current}")
-    elif args.nodes_command == "use":
+    elif nodes_command == "use":
         name = resolve_node_name(args.node, state)
         switch_node(name, state)
         print(f"Switched VPN group to: {name}")
-    elif args.nodes_command == "auto":
+    elif nodes_command == "auto":
         cmd_auto(args)
     else:
         raise CliError("Missing nodes subcommand.")
