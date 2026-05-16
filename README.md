@@ -15,9 +15,15 @@
 
 ## 快速安装
 
+先把订阅链接放到变量里，注意不要照抄尖括号占位符：
+
+```bash
+export SUB_URL='https://example.com/your/subscription?clash=1'
+```
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Wenjin412/VPN_On_Linux_Server/main/scripts/install.sh \
-  | sudo bash -s -- --subscription '<your-clash-subscription-url>'
+  | sudo bash -s -- --subscription "$SUB_URL"
 ```
 
 大陆服务器如果访问 GitHub 很慢，可以使用自己信任的 GitHub 加速/反代前缀。安装器会把 GitHub
@@ -26,7 +32,7 @@ release、raw 文件都通过这个前缀重试下载：
 ```bash
 export VPNCLI_GITHUB_PROXY='<your-trusted-github-proxy-prefix>'
 curl -fsSL "${VPNCLI_GITHUB_PROXY%/}/https://raw.githubusercontent.com/Wenjin412/VPN_On_Linux_Server/main/scripts/install.sh" \
-  | sudo VPNCLI_GITHUB_PROXY="$VPNCLI_GITHUB_PROXY" bash -s -- --subscription '<your-clash-subscription-url>'
+  | sudo VPNCLI_GITHUB_PROXY="$VPNCLI_GITHUB_PROXY" bash -s -- --subscription "$SUB_URL"
 ```
 
 `VPNCLI_GITHUB_PROXY` 支持两种格式：
@@ -38,7 +44,7 @@ curl -fsSL "${VPNCLI_GITHUB_PROXY%/}/https://raw.githubusercontent.com/Wenjin412
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Wenjin412/VPN_On_Linux_Server/main/scripts/install.sh | sudo bash
-sudo vpncli setup '<your-clash-subscription-url>'
+sudo vpncli setup "$SUB_URL"
 ```
 
 安装后服务会通过 systemd 开机自启动：

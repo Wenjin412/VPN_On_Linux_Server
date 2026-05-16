@@ -74,9 +74,20 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 1
 fi
 
+if [[ -n "$SUBSCRIPTION_URL" && "$SUBSCRIPTION_URL" != http://* && "$SUBSCRIPTION_URL" != https://* ]]; then
+  cat >&2 <<MSG
+Invalid subscription URL: $SUBSCRIPTION_URL
+
+Please replace the placeholder with your real Clash subscription URL, for example:
+  sudo bash scripts/install.sh --subscription 'https://example.com/your/subscription?clash=1'
+MSG
+  exit 2
+fi
+
 script_dir=""
-if [[ "${BASH_SOURCE[0]}" != "bash" && -n "${BASH_SOURCE[0]}" ]]; then
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source_path="${BASH_SOURCE[0]:-}"
+if [[ -n "$source_path" && "$source_path" != "bash" ]]; then
+  script_dir="$(cd "$(dirname "$source_path")" && pwd)"
 fi
 repo_dir=""
 if [[ -n "$script_dir" && -f "$script_dir/../vpn_on_linux/vpnctl.py" ]]; then
