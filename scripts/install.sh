@@ -5,10 +5,12 @@ REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/Wenjin412/VPN_
 MIHOMO_REPO="${MIHOMO_REPO:-MetaCubeX/mihomo}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/vpn-on-linux}"
 BIN_DIR="$INSTALL_DIR/bin"
-ETC_DIR="${VPNCTL_ETC_DIR:-/etc/vpn-on-linux}"
-VAR_DIR="${VPNCTL_VAR_DIR:-/var/lib/vpn-on-linux}"
+ETC_DIR="${VPNCLI_ETC_DIR:-${VPNCTL_ETC_DIR:-/etc/vpn-on-linux}}"
+VAR_DIR="${VPNCLI_VAR_DIR:-${VPNCTL_VAR_DIR:-/var/lib/vpn-on-linux}}"
 SUBSCRIPTION_URL="${VPN_SUBSCRIPTION_URL:-}"
 START_AFTER_INSTALL=auto
+GITHUB_PROXY_LIST="${VPNCLI_GITHUB_PROXY_LIST:-${VPNCLI_GITHUB_PROXY:-${GITHUB_PROXY:-}}}"
+CURL_COMMON=(--fail --location --retry 3 --connect-timeout 15 --max-time 300 --speed-time 30 --speed-limit 1024)
 
 usage() {
   cat <<USAGE
@@ -18,6 +20,11 @@ Usage:
 Environment:
   VPN_SUBSCRIPTION_URL   Subscription URL to configure during install.
   MIHOMO_VERSION         Optional Mihomo tag, for example v1.19.24.
+  VPNCLI_GITHUB_PROXY    Optional trusted GitHub mirror/proxy prefix for mainland servers.
+                         Example: https://your-mirror.example.com/
+                         The mirror receives full GitHub URLs as path, or use {url}.
+  VPNCLI_GITHUB_PROXY_LIST
+                         Comma-separated mirror/proxy prefixes tried before direct GitHub.
   REPO_RAW_BASE          Raw GitHub base used when the script is piped from curl.
 USAGE
 }
@@ -82,9 +89,75 @@ fetch_file() {
   if [[ -n "$repo_dir" && -f "$repo_dir/$rel" ]]; then
     install -m 0755 "$repo_dir/$rel" "$dest"
   else
-    curl -fsSL "$REPO_RAW_BASE/$rel" -o "$dest"
+    download_url "$REPO_RAW_BASE/$rel" "$dest"
     chmod 0755 "$dest"
   fi
+}
+
+proxied_url() {
+  local proxy="$1"
+  local url="$2"
+  if [[ -z "$proxy" ]]; then
+    echo "$url"
+  elif [[ "$proxy" == *"{url}"* ]]; then
+    echo "${proxy//\{url\}/$url}"
+  else
+    echo "${proxy%/}/$url"
+  fi
+}
+
+download_candidates() {
+  local url="$1"
+  local proxy
+  if [[ -n "$GITHUB_PROXY_LIST" ]]; then
+    IFS=',' read -ra proxies <<< "$GITHUB_PROXY_LIST"
+    for proxy in "${proxies[@]}"; do
+      proxy="${proxy//[[:space:]]/}"
+      [[ -n "$proxy" ]] && proxied_url "$proxy" "$url"
+    done
+  fi
+  echo "$url"
+}
+
+download_url() {
+  local url="$1"
+  local dest="$2"
+  local candidate
+  while IFS= read -r candidate; do
+    echo "Downloading: $candidate"
+    if curl "${CURL_COMMON[@]}" "$candidate" -o "$dest"; then
+      return 0
+    fi
+    echo "Download failed, trying next source if available." >&2
+  done < <(download_candidates "$url")
+  echo "All download sources failed for: $url" >&2
+  exit 1
+}
+
+fetch_text() {
+  local url="$1"
+  local candidate
+  while IFS= read -r candidate; do
+    if curl "${CURL_COMMON[@]}" --silent --show-error "$candidate"; then
+      return 0
+    fi
+  done < <(download_candidates "$url")
+  echo "All text sources failed for: $url" >&2
+  exit 1
+}
+
+effective_url() {
+  local url="$1"
+  local candidate effective
+  while IFS= read -r candidate; do
+    effective="$(curl --fail --silent --show-error --location --head --connect-timeout 15 --max-time 60 -o /dev/null -w '%{url_effective}' "$candidate" || true)"
+    if [[ -n "$effective" ]]; then
+      echo "$effective"
+      return 0
+    fi
+  done < <(download_candidates "$url")
+  echo "Could not resolve latest release URL: $url" >&2
+  exit 1
 }
 
 latest_mihomo_tag() {
@@ -93,7 +166,7 @@ latest_mihomo_tag() {
     return
   fi
   local effective
-  effective="$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/$MIHOMO_REPO/releases/latest")"
+  effective="$(effective_url "https://github.com/$MIHOMO_REPO/releases/latest")"
   echo "${effective##*/}"
 }
 
@@ -129,7 +202,7 @@ select_asset() {
   local pattern candidates preferred
   pattern="$(asset_pattern)"
   local html
-  html="$(curl -fsSL "https://github.com/$MIHOMO_REPO/releases/expanded_assets/$tag")"
+  html="$(fetch_text "https://github.com/$MIHOMO_REPO/releases/expanded_assets/$tag")"
   candidates="$(printf '%s\n' "$html" \
     | grep -Eo 'mihomo-linux-[^"< ]+\.gz' \
     | sort -u \
@@ -153,7 +226,7 @@ install_mihomo() {
   url="https://github.com/$MIHOMO_REPO/releases/download/$tag/$asset"
   tmpdir="$(mktemp -d)"
   echo "Downloading Mihomo $tag: $asset"
-  curl -fL --retry 3 --connect-timeout 20 "$url" -o "$tmpdir/mihomo.gz"
+  download_url "$url" "$tmpdir/mihomo.gz"
   gzip -dc "$tmpdir/mihomo.gz" > "$tmpdir/mihomo"
   install -m 0755 "$tmpdir/mihomo" "$BIN_DIR/mihomo"
   rm -rf "$tmpdir"
@@ -164,21 +237,22 @@ install -d -m 0700 "$ETC_DIR" "$VAR_DIR"
 install -d -m 0755 /usr/local/bin
 
 install_mihomo
-fetch_file "vpn_on_linux/vpnctl.py" "$BIN_DIR/vpnctl"
-ln -sf "$BIN_DIR/vpnctl" /usr/local/bin/vpnctl
+fetch_file "vpn_on_linux/vpnctl.py" "$BIN_DIR/vpncli"
+ln -sf "$BIN_DIR/vpncli" /usr/local/bin/vpncli
+ln -sf "$BIN_DIR/vpncli" /usr/local/bin/vpnctl
 
 if command -v systemctl >/dev/null 2>&1; then
   if [[ -n "$repo_dir" && -f "$repo_dir/systemd/vpn-on-linux.service" ]]; then
     install -m 0644 "$repo_dir/systemd/vpn-on-linux.service" /etc/systemd/system/vpn-on-linux.service
   else
     tmp_unit="$(mktemp)"
-    curl -fsSL "$REPO_RAW_BASE/systemd/vpn-on-linux.service" -o "$tmp_unit"
+    download_url "$REPO_RAW_BASE/systemd/vpn-on-linux.service" "$tmp_unit"
     install -m 0644 "$tmp_unit" /etc/systemd/system/vpn-on-linux.service
     rm -f "$tmp_unit"
   fi
   systemctl daemon-reload
 else
-  echo "systemctl was not found; installed vpnctl and Mihomo only." >&2
+  echo "systemctl was not found; installed vpncli and Mihomo only." >&2
 fi
 
 if [[ -n "$SUBSCRIPTION_URL" ]]; then
@@ -186,18 +260,18 @@ if [[ -n "$SUBSCRIPTION_URL" ]]; then
     START_AFTER_INSTALL=true
   fi
   if [[ "$START_AFTER_INSTALL" == "true" ]]; then
-    /usr/local/bin/vpnctl setup "$SUBSCRIPTION_URL"
+    /usr/local/bin/vpncli setup "$SUBSCRIPTION_URL"
   else
-    /usr/local/bin/vpnctl subscription set "$SUBSCRIPTION_URL"
+    /usr/local/bin/vpncli subscription set "$SUBSCRIPTION_URL"
   fi
 else
   cat <<MSG
 Installed VPN On Linux Server.
 
 Next:
-  sudo vpnctl setup '<your-clash-subscription-url>'
-  vpnctl status
-  vpnctl test
+  sudo vpncli setup '<your-clash-subscription-url>'
+  vpncli status
+  vpncli test
 
 The default mode is proxy-only and targeted, so it does not change server routes
 or interfere with inbound API services.

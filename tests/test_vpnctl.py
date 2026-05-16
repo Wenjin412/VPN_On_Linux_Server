@@ -51,6 +51,7 @@ class VpnctlUnitTests(unittest.TestCase):
         args = type("Args", (), {"nodes_command": None})()
         state = vpnctl.default_state()
         with (
+            mock.patch("sys.stdin.isatty", return_value=False),
             mock.patch.object(vpnctl, "read_state", return_value=state),
             mock.patch.object(vpnctl, "get_provider_nodes", return_value=["Hong Kong 01"]),
             mock.patch.object(vpnctl, "selected_node", return_value="Hong Kong 01"),
@@ -58,6 +59,53 @@ class VpnctlUnitTests(unittest.TestCase):
         ):
             vpnctl.cmd_nodes(args)
         print_mock.assert_any_call("* 001 Hong Kong 01")
+
+    def test_nodes_interactive_selects_number(self):
+        args = type("Args", (), {"nodes_command": None})()
+        state = vpnctl.default_state()
+        with (
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch.object(vpnctl, "read_state", return_value=state),
+            mock.patch.object(vpnctl, "get_provider_nodes", return_value=["Hong Kong 01", "Tokyo 02"]),
+            mock.patch.object(vpnctl, "selected_node", return_value=""),
+            mock.patch.object(vpnctl, "switch_node") as switch_mock,
+            mock.patch("builtins.input", return_value="2"),
+            mock.patch("builtins.print"),
+        ):
+            vpnctl.cmd_nodes(args)
+        switch_mock.assert_called_once_with("Tokyo 02", state)
+
+    def test_nodes_interactive_blank_keeps_current_node(self):
+        args = type("Args", (), {"nodes_command": None})()
+        state = vpnctl.default_state()
+        with (
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch.object(vpnctl, "read_state", return_value=state),
+            mock.patch.object(vpnctl, "get_provider_nodes", return_value=["Hong Kong 01"]),
+            mock.patch.object(vpnctl, "selected_node", return_value="Hong Kong 01"),
+            mock.patch.object(vpnctl, "switch_node") as switch_mock,
+            mock.patch.object(vpnctl, "cmd_auto") as auto_mock,
+            mock.patch("builtins.input", return_value=""),
+            mock.patch("builtins.print"),
+        ):
+            vpnctl.cmd_nodes(args)
+        switch_mock.assert_not_called()
+        auto_mock.assert_not_called()
+
+    def test_nodes_interactive_non_number_runs_auto(self):
+        args = type("Args", (), {"nodes_command": None})()
+        state = vpnctl.default_state()
+        with (
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch.object(vpnctl, "read_state", return_value=state),
+            mock.patch.object(vpnctl, "get_provider_nodes", return_value=["Hong Kong 01"]),
+            mock.patch.object(vpnctl, "selected_node", return_value=""),
+            mock.patch.object(vpnctl, "cmd_auto") as auto_mock,
+            mock.patch("builtins.input", return_value="auto"),
+            mock.patch("builtins.print"),
+        ):
+            vpnctl.cmd_nodes(args)
+        auto_mock.assert_called_once()
 
 
 if __name__ == "__main__":

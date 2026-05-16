@@ -6,8 +6,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=/usr/local/bin/vpnctl subscription refresh --quiet
-ExecStartPre=/usr/local/bin/vpnctl render --quiet
+ExecStartPre=/usr/local/bin/vpncli subscription refresh --quiet --if-stale 3600
+ExecStartPre=/usr/local/bin/vpncli render --quiet
 ExecStart=/opt/vpn-on-linux/bin/mihomo -d /etc/vpn-on-linux -f /etc/vpn-on-linux/config.yaml
 Restart=on-failure
 RestartSec=3

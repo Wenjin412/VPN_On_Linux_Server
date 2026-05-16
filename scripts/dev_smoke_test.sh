@@ -29,12 +29,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export VPNCTL_ETC_DIR="$TMP_DIR/etc"
-export VPNCTL_VAR_DIR="$TMP_DIR/var"
-export VPNCTL_STATE_PATH="$VPNCTL_ETC_DIR/state.json"
-export VPNCTL_CONFIG_PATH="$VPNCTL_ETC_DIR/config.yaml"
-export VPNCTL_PROVIDER_PATH="$VPNCTL_ETC_DIR/providers/subscription.yaml"
-export VPNCTL_SERVICE_NAME="vpn-on-linux-dev.service"
+export VPNCLI_ETC_DIR="$TMP_DIR/etc"
+export VPNCLI_VAR_DIR="$TMP_DIR/var"
+export VPNCLI_STATE_PATH="$VPNCLI_ETC_DIR/state.json"
+export VPNCLI_CONFIG_PATH="$VPNCLI_ETC_DIR/config.yaml"
+export VPNCLI_PROVIDER_PATH="$VPNCLI_ETC_DIR/providers/subscription.yaml"
+export VPNCLI_SERVICE_NAME="vpn-on-linux-dev.service"
 
 latest_mihomo_tag() {
   local effective
@@ -78,7 +78,7 @@ import json
 import os
 from pathlib import Path
 
-state_path = Path(os.environ["VPNCTL_STATE_PATH"])
+state_path = Path(os.environ["VPNCLI_STATE_PATH"])
 state = json.loads(state_path.read_text())
 state["mixed_port"] = 17890
 state["controller_port"] = 19090
@@ -86,7 +86,7 @@ state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 PY
 python3 "$ROOT_DIR/vpn_on_linux/vpnctl.py" render --quiet
 
-"$TMP_DIR/mihomo" -d "$VPNCTL_ETC_DIR" -f "$VPNCTL_CONFIG_PATH" > "$TMP_DIR/mihomo.log" 2>&1 &
+"$TMP_DIR/mihomo" -d "$VPNCLI_ETC_DIR" -f "$VPNCLI_CONFIG_PATH" > "$TMP_DIR/mihomo.log" 2>&1 &
 MIHOMO_PID="$!"
 
 for _ in $(seq 1 40); do

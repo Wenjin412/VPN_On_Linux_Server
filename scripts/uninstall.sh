@@ -42,7 +42,7 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
 fi
 
-rm -f /usr/local/bin/vpnctl
+rm -f /usr/local/bin/vpncli /usr/local/bin/vpnctl
 rm -rf /opt/vpn-on-linux
 
 if [[ "$PURGE" == "true" ]]; then
