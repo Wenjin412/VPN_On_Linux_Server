@@ -23,6 +23,11 @@ class VpnctlUnitTests(unittest.TestCase):
         self.assertNotIn("MATCH,VPN", text)
         self.assertIn("allow-lan: false", text)
         self.assertIn("bind-address: 127.0.0.1", text)
+        self.assertIn("tun:", text)
+        self.assertIn("  enable: true", text)
+        self.assertIn("  stack: mixed", text)
+        self.assertIn("  dns-hijack:", text)
+        self.assertIn("    - any:53", text)
 
     def test_global_config_routes_proxy_clients_through_vpn(self):
         state = vpnctl.default_state()
@@ -39,6 +44,34 @@ class VpnctlUnitTests(unittest.TestCase):
         self.assertEqual(env["https_proxy"], "http://127.0.0.1:7890")
         self.assertIn("127.0.0.1", env["no_proxy"])
         self.assertIn("10.0.0.0/8", env["no_proxy"])
+
+    def test_setup_can_disable_tun(self):
+        args = type(
+            "Args",
+            (),
+            {
+                "subscription_url": "https://example.com/sub",
+                "no_tun": True,
+                "tun_stack": "system",
+                "quiet": True,
+            },
+        )()
+        captured = {}
+
+        def fake_write_state(state):
+            captured.update(state)
+
+        with (
+            mock.patch.object(vpnctl, "read_state", return_value=vpnctl.default_state()),
+            mock.patch.object(vpnctl, "write_state", side_effect=fake_write_state),
+            mock.patch.object(vpnctl, "refresh_subscription"),
+            mock.patch.object(vpnctl, "render_config"),
+            mock.patch.object(vpnctl, "systemctl"),
+        ):
+            vpnctl.cmd_setup(args)
+
+        self.assertFalse(captured["tun_enabled"])
+        self.assertEqual(captured["tun_stack"], "system")
 
     def test_resolve_node_name_supports_index_exact_and_fuzzy(self):
         state = vpnctl.default_state()

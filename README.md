@@ -11,7 +11,8 @@
 - 订阅管理：支持 Clash/Mihomo 订阅链接，支持刷新、替换、隐藏显示。
 - 节点管理：列出节点、按序号/名称切换节点、自动选择最佳节点。
 - 面向常用 AI 产品优化：自动选点默认测试 Google、OpenAI、Anthropic 连接质量。
-- 保护服务器入站服务：默认只监听 `127.0.0.1` 本机代理端口，不修改系统路由、不开放局域网代理。
+- TUN 默认开启：启动后自动启用 Mihomo TUN、DNS hijack、auto-route 和网卡自动检测，实现系统出站透明代理。
+- 稳定自启动：systemd 服务开机自启动，并使用持续重启策略，Mihomo 正常退出后也会被重新拉起。
 
 ## 快速安装
 
@@ -62,6 +63,7 @@ sudo vpncli setup "$SUB_URL"
 ```bash
 vpncli status
 vpncli test
+vpncli info
 ```
 
 ## 常用命令
@@ -102,7 +104,7 @@ eval "$(vpncli env)"
 
 - Google / OpenAI / Anthropic 相关域名走 VPN。
 - 其他流量直连。
-- 不修改系统默认路由，因此不会影响服务器对外提供的 API 入站连接。
+- TUN 默认开启后，系统出站流量会进入 Mihomo；`targeted` 规则仍会让未命中的流量直连。
 
 切换为全局代理客户端模式：
 
@@ -120,24 +122,34 @@ sudo vpncli restart
 
 ## TUN 透明代理
 
-默认关闭 TUN。大多数服务器场景建议保持关闭，只让需要代理的命令或程序使用
-`http://127.0.0.1:7890`。
+默认开启 TUN。安装器生成的 systemd 服务包含 `CAP_NET_ADMIN`、`CAP_NET_RAW` 和
+`CAP_NET_BIND_SERVICE`，因此开机自启动后也能稳定建立透明代理路由。
 
-如确实需要透明代理整个服务器的出站流量：
+查看当前 TUN 状态：
 
 ```bash
-sudo vpncli tun enable
+vpncli tun
+```
+
+切换 TUN stack：
+
+```bash
+sudo vpncli tun enable --stack mixed
 sudo vpncli restart
 ```
 
-关闭：
+如确实只需要本机代理端口、不要透明代理系统出站流量，可以关闭：
 
 ```bash
 sudo vpncli tun disable
 sudo vpncli restart
 ```
 
-启用 TUN 会修改服务器出站路由，请在有回滚通道的情况下操作，并观察线上 API 服务。
+首次配置时也可以显式关闭 TUN：
+
+```bash
+sudo vpncli setup --no-tun "$SUB_URL"
+```
 
 ## 文件位置
 

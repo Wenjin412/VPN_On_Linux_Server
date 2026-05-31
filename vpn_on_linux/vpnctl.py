@@ -51,6 +51,7 @@ DEFAULT_MIXED_PORT = 7890
 DEFAULT_CONTROLLER_PORT = 9090
 DEFAULT_CONTROLLER_HOST = "127.0.0.1"
 DEFAULT_AUTO_TIMEOUT_MS = 5000
+DEFAULT_TUN_STACK = "mixed"
 
 NO_PROXY_VALUE = ",".join(
     [
@@ -127,7 +128,8 @@ def default_state() -> dict[str, Any]:
         "controller_port": DEFAULT_CONTROLLER_PORT,
         "controller_secret": secrets.token_urlsafe(24),
         "route_mode": "targeted",
-        "tun_enabled": False,
+        "tun_enabled": True,
+        "tun_stack": DEFAULT_TUN_STACK,
         "auto_timeout_ms": DEFAULT_AUTO_TIMEOUT_MS,
         "auto_products": ["google", "openai", "anthropic"],
     }
@@ -321,6 +323,7 @@ def render_config_text(state: dict[str, Any]) -> str:
     controller_port = int(state.get("controller_port", DEFAULT_CONTROLLER_PORT))
     secret = str(state.get("controller_secret", ""))
     tun_enabled = bool(state.get("tun_enabled", False))
+    tun_stack = str(state.get("tun_stack", DEFAULT_TUN_STACK))
     timeout_ms = int(state.get("auto_timeout_ms", DEFAULT_AUTO_TIMEOUT_MS))
     route_mode = str(state.get("route_mode", "targeted"))
     rules = rules_for_mode(route_mode)
@@ -344,7 +347,9 @@ def render_config_text(state: dict[str, Any]) -> str:
         "",
         "tun:",
         f"  enable: {yaml_bool(tun_enabled)}",
-        "  stack: system",
+        f"  stack: {tun_stack}",
+        "  dns-hijack:",
+        "    - any:53",
         "  auto-route: true",
         "  auto-detect-interface: true",
         "  strict-route: false",
@@ -415,6 +420,8 @@ def maybe_restart_service() -> None:
 def cmd_setup(args: argparse.Namespace) -> None:
     state = read_state()
     state["subscription_url"] = args.subscription_url
+    state["tun_enabled"] = not args.no_tun
+    state["tun_stack"] = args.tun_stack
     write_state(state)
     refresh_subscription(argparse.Namespace(quiet=args.quiet))
     render_config(argparse.Namespace(quiet=args.quiet))
@@ -477,15 +484,18 @@ def cmd_mode(args: argparse.Namespace) -> None:
 def cmd_tun(args: argparse.Namespace) -> None:
     state = read_state(required=True)
     if args.value is None:
-        print("enabled" if state.get("tun_enabled") else "disabled")
+        status = "enabled" if state.get("tun_enabled") else "disabled"
+        print(f"{status} stack={state.get('tun_stack', DEFAULT_TUN_STACK)}")
         return
     state["tun_enabled"] = args.value == "enable"
+    if args.stack:
+        state["tun_stack"] = args.stack
     write_state(state)
     render_config(argparse.Namespace(quiet=args.quiet))
     maybe_restart_service()
     if not args.quiet:
         if state["tun_enabled"]:
-            print("TUN enabled. This changes server outbound routing; monitor hosted APIs carefully.")
+            print(f"TUN enabled with {state.get('tun_stack', DEFAULT_TUN_STACK)} stack.")
         else:
             print("TUN disabled. The service is back to local proxy-only mode.")
 
@@ -887,6 +897,7 @@ def cmd_info(args: argparse.Namespace) -> None:
     print(f"controller: {controller_base(state)}")
     print(f"route_mode: {state.get('route_mode', 'targeted')}")
     print(f"tun: {'enabled' if state.get('tun_enabled') else 'disabled'}")
+    print(f"tun_stack: {state.get('tun_stack', DEFAULT_TUN_STACK)}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -898,6 +909,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     setup = sub.add_parser("setup", help="configure subscription, enable autostart, and start service")
     setup.add_argument("subscription_url")
+    setup.add_argument("--no-tun", action="store_true", help="keep transparent TUN routing disabled")
+    setup.add_argument("--tun-stack", choices=["system", "gvisor", "mixed"], default=DEFAULT_TUN_STACK)
     setup.add_argument("--quiet", action="store_true")
     setup.set_defaults(func=cmd_setup)
 
@@ -933,6 +946,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tun = sub.add_parser("tun", help="show or set TUN transparent proxy mode")
     tun.add_argument("value", nargs="?", choices=["enable", "disable"])
+    tun.add_argument("--stack", choices=["system", "gvisor", "mixed"], help="TUN stack used when enabling or rendering")
     tun.add_argument("--quiet", action="store_true")
     tun.set_defaults(func=cmd_tun)
 

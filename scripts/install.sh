@@ -349,7 +349,10 @@ Next:
   vpncli status
   vpncli test
 
-The default mode is proxy-only and targeted, so it does not change server routes
-or interfere with inbound API services.
+The default mode enables TUN with targeted routing. Use
+  sudo vpncli setup --no-tun '<your-clash-subscription-url>'
+or
+  sudo vpncli tun disable
+if this machine should only expose the local proxy port.
 MSG
 fi
